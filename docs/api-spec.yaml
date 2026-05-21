@@ -1,1 +1,1754 @@
+openapi: 3.0.3
 
+info:
+  title: TradeLens API
+  description: |
+    Cross-border trade compliance platform for the **Tanzania–Zambia corridor**.
+    Enables digital certificate issuance, one-time document upload, and real-time
+    customs verification under 30 seconds (BR-03).
+
+    ## Roles
+    | Role | Description |
+    |---|---|
+    | `trader` | Self-registered. Uploads documents, views compliance, downloads certificates. |
+    | `standards_officer` | TBS (TZ) or ZABS (ZM). Reviews documents, issues certificates. |
+    | `customs_officer` | TRA (TZ) or ZRA (ZM). Scans QR / searches at border checkpoint. |
+    | `admin` | Manages users, roles, and system-wide permissions. |
+
+    ## Authentication
+    All protected endpoints require a Supabase JWT passed as:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+    Obtain tokens from `POST /api/auth/login`.
+
+  version: 1.0.0
+  contact:
+    name: TradeLens Team — IIT Madras Zanzibar Campus
+    email: zda24m007@iitmz.ac.in
+
+servers:
+  - url: https://tradelens-api.onrender.com
+    description: Production (Render free tier)
+  - url: http://localhost:4000
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Registration, login, session management, and user administration
+  - name: Documents
+    description: One-time document upload and compliance checklist (BR-02)
+  - name: Certificates
+    description: Digital certificate issuance, download, and revocation (BR-01)
+  - name: Verify
+    description: Border checkpoint QR scan and ID search (BR-03, US-05, US-06)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECURITY SCHEMES
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase Auth JWT — obtained from POST /api/auth/login
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # REUSABLE SCHEMAS
+  # ───────────────────────────────────────────────────────────────────────────
+  schemas:
+
+    # ── Enums ────────────────────────────────────────────────────────────────
+    Country:
+      type: string
+      enum: [TZ, ZM]
+      description: Tanzania (TZ) or Zambia (ZM)
+
+    UserRole:
+      type: string
+      enum: [trader, standards_officer, customs_officer, admin]
+
+    DocumentType:
+      type: string
+      enum:
+        - phytosanitary_certificate
+        - certificate_of_origin
+        - packing_list
+        - commercial_invoice
+        - import_permit
+        - quality_inspection_report
+
+    DocumentStatus:
+      type: string
+      enum: [pending, approved, rejected]
+
+    CertificateType:
+      type: string
+      enum: [TBS, ZABS]
+      description: Tanzania Bureau of Standards or Zambia Bureau of Standards
+
+    CertificateStatus:
+      type: string
+      enum: [active, revoked, expired]
+
+    VerificationStatus:
+      type: string
+      enum: [valid, expired, revoked, invalid, not_found]
+
+    StatusColour:
+      type: string
+      enum: [green, red]
+
+    # ── Common Objects ────────────────────────────────────────────────────────
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+        country:
+          $ref: '#/components/schemas/Country'
+        phone:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        trader_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        document_type:
+          $ref: '#/components/schemas/DocumentType'
+        destination_country:
+          $ref: '#/components/schemas/Country'
+        description:
+          type: string
+          nullable: true
+        file_url:
+          type: string
+          format: uri
+        storage_path:
+          type: string
+        status:
+          $ref: '#/components/schemas/DocumentStatus'
+        reviewer_notes:
+          type: string
+          nullable: true
+        reviewed_by:
+          type: string
+          format: uuid
+          nullable: true
+        reviewed_at:
+          type: string
+          format: date-time
+          nullable: true
+        uploaded_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Certificate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        certificate_number:
+          type: string
+          example: TL-TZ-TBS-LK3M9A
+        document_id:
+          type: string
+          format: uuid
+        trader_id:
+          type: string
+          format: uuid
+        issued_by:
+          type: string
+          format: uuid
+        product_name:
+          type: string
+        certificate_type:
+          $ref: '#/components/schemas/CertificateType'
+        issuing_country:
+          $ref: '#/components/schemas/Country'
+        destination_country:
+          $ref: '#/components/schemas/Country'
+        valid_until:
+          type: string
+          format: date
+        qr_code_url:
+          type: string
+          description: Base64 PNG data URL of the QR code
+        sha256_hash:
+          type: string
+          description: SHA-256 tamper-detection hash of the certificate payload
+        status:
+          $ref: '#/components/schemas/CertificateStatus'
+        revocation_reason:
+          type: string
+          nullable: true
+        revoked_by:
+          type: string
+          format: uuid
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    VerificationResult:
+      type: object
+      properties:
+        verification_status:
+          $ref: '#/components/schemas/VerificationStatus'
+        status_colour:
+          $ref: '#/components/schemas/StatusColour'
+        status_message:
+          type: string
+        response_ms:
+          type: integer
+          description: Response time in milliseconds — must be under 30 000 (BR-03)
+        certificate:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            certificate_number:
+              type: string
+            product_name:
+              type: string
+            certificate_type:
+              $ref: '#/components/schemas/CertificateType'
+            issuing_country:
+              $ref: '#/components/schemas/Country'
+            destination_country:
+              $ref: '#/components/schemas/Country'
+            valid_until:
+              type: string
+              format: date
+            issued_at:
+              type: string
+              format: date-time
+            status:
+              $ref: '#/components/schemas/CertificateStatus'
+            trader:
+              $ref: '#/components/schemas/UserProfile'
+            issued_by:
+              $ref: '#/components/schemas/UserProfile'
+            revocation_reason:
+              type: string
+              nullable: true
+            revoked_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          example: certificate_issued
+        role:
+          $ref: '#/components/schemas/UserRole'
+        country:
+          $ref: '#/components/schemas/Country'
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        performed_by_user:
+          $ref: '#/components/schemas/UserProfile'
+
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+
+    # ── Error & Success Wrappers ──────────────────────────────────────────────
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # REUSABLE RESPONSES
+  # ───────────────────────────────────────────────────────────────────────────
+  responses:
+    Unauthorised:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: Token is invalid or expired.
+
+    Forbidden:
+      description: Authenticated but insufficient role or country
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: Access denied. Required role(s): standards_officer.
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: Certificate not found.
+
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: Internal server error.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AUTH
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Trader self-registration
+      description: |
+        Public endpoint. Only `trader` role may self-register.
+        Standards Officers and Customs Officers are created by an Admin via
+        `POST /api/auth/users`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, full_name, role, country]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                  description: Min 8 chars, at least one uppercase letter and one number
+                full_name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                role:
+                  type: string
+                  enum: [trader]
+                country:
+                  $ref: '#/components/schemas/Country'
+                phone:
+                  type: string
+                  nullable: true
+                  example: "+255712345678"
+            example:
+              email: amina.hassan@example.com
+              password: Secure1234
+              full_name: Amina Hassan
+              role: trader
+              country: TZ
+              phone: "+255712345678"
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserProfile'
+        '400':
+          description: Email already in use or Supabase Auth error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Non-trader role attempted to self-register
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login — all roles
+      description: Returns a Supabase session with `access_token` and `refresh_token`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+            example:
+              email: amina.hassan@example.com
+              password: Secure1234
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      expires_at:
+                        type: integer
+                      user:
+                        $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Account is deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout — invalidate session
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: New tokens issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      expires_at:
+                        type: integer
+        '401':
+          description: Refresh token invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get own profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      tags: [Auth]
+      summary: Update own profile
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                phone:
+                  type: string
+                  nullable: true
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/users:
+    post:
+      tags: [Auth]
+      summary: Create officer or admin account (Admin only)
+      description: |
+        Admin-only. Creates `standards_officer`, `customs_officer`, or `admin` accounts.
+        Traders must self-register via `POST /api/auth/register`.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, full_name, role, country]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                full_name:
+                  type: string
+                role:
+                  type: string
+                  enum: [standards_officer, customs_officer, admin]
+                country:
+                  $ref: '#/components/schemas/Country'
+                phone:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Officer account created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+        '400':
+          description: Invalid role or Supabase Auth error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/users/{id}/deactivate:
+    patch:
+      tags: [Auth]
+      summary: Deactivate a user account (Admin only)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DOCUMENTS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  /api/documents/upload:
+    post:
+      tags: [Documents]
+      summary: Upload compliance document (Trader only — BR-02)
+      description: |
+        Upload once, reuse across both countries. Duplicate detection blocks
+        re-uploading the same document type per product + destination when
+        already pending or approved.
+        Sends SMS notification to trader via Africa's Talking on success.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, document_type, destination_country, file]
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+                document_type:
+                  $ref: '#/components/schemas/DocumentType'
+                destination_country:
+                  $ref: '#/components/schemas/Country'
+                description:
+                  type: string
+                  maxLength: 500
+                  nullable: true
+                file:
+                  type: string
+                  format: byte
+                  description: Base64-encoded file content (PDF, JPEG, PNG, WEBP — max 10 MB)
+      responses:
+        '201':
+          description: Document uploaded and queued for review
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/Document'
+        '400':
+          description: No file provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Duplicate document already pending or approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: File exceeds 10 MB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          description: Unsupported file type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/documents:
+    get:
+      tags: [Documents]
+      summary: List documents (scoped by role)
+      description: |
+        Traders see only their own documents.
+        Standards Officers and Admins see all documents with optional filters.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/DocumentStatus'
+        - name: document_type
+          in: query
+          schema:
+            $ref: '#/components/schemas/DocumentType'
+        - name: destination_country
+          in: query
+          schema:
+            $ref: '#/components/schemas/Country'
+        - name: product_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Document list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/documents/checklist:
+    get:
+      tags: [Documents]
+      summary: Compliance checklist for a product (Trader — US-02)
+      description: |
+        Returns green / amber / red compliance status per document type
+        for a given product and destination country.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: product_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: destination_country
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Country'
+      responses:
+        '200':
+          description: Compliance checklist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      product_id:
+                        type: string
+                        format: uuid
+                      destination_country:
+                        $ref: '#/components/schemas/Country'
+                      overall_status:
+                        type: string
+                        enum: [green, amber, red]
+                      checklist:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            document_type:
+                              $ref: '#/components/schemas/DocumentType'
+                            status:
+                              type: string
+                              enum: [green, amber, red]
+                            document_id:
+                              type: string
+                              format: uuid
+                              nullable: true
+                            uploaded_at:
+                              type: string
+                              format: date-time
+                              nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/documents/{id}:
+    get:
+      tags: [Documents]
+      summary: Get single document
+      description: Traders can only access their own documents.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Document record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Document'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [Documents]
+      summary: Delete own pending document (Trader only)
+      description: |
+        Traders can only delete documents with status `pending`.
+        Approved or rejected documents cannot be deleted.
+        Removes file from Supabase Storage and logs deletion to audit trail.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Document is not in pending status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/documents/{id}/status:
+    get:
+      tags: [Documents]
+      summary: Check document review status (Trader — US-02)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Document status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      document_type:
+                        $ref: '#/components/schemas/DocumentType'
+                      status:
+                        $ref: '#/components/schemas/DocumentStatus'
+                      destination_country:
+                        $ref: '#/components/schemas/Country'
+                      uploaded_at:
+                        type: string
+                        format: date-time
+                      updated_at:
+                        type: string
+                        format: date-time
+                      reviewer_notes:
+                        type: string
+                        nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/documents/{id}/review:
+    patch:
+      tags: [Documents]
+      summary: Approve or reject a document (Standards Officer — US-04)
+      description: |
+        Standards Officers can only review documents destined for their country.
+        Rejection requires `reviewer_notes` of at least 10 characters.
+        Sends SMS notification to the trader on decision.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [approved, rejected]
+                reviewer_notes:
+                  type: string
+                  description: Required when status is rejected (min 10 characters)
+      responses:
+        '200':
+          description: Document reviewed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/Document'
+        '400':
+          description: Invalid status or missing reviewer notes for rejection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CERTIFICATES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  /api/certificates/issue:
+    post:
+      tags: [Certificates]
+      summary: Issue a digital certificate (Standards Officer — US-04, BR-01)
+      description: |
+        Issues a certificate for an approved document. Generates a SHA-256
+        tamper-detection hash and a QR code via `certificateService`.
+        Updates document status to `approved` and logs to audit trail.
+        Sends SMS notification to the trader.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document_id, trader_id, product_name, certificate_type, valid_until, issuing_country]
+              properties:
+                document_id:
+                  type: string
+                  format: uuid
+                trader_id:
+                  type: string
+                  format: uuid
+                product_name:
+                  type: string
+                  minLength: 2
+                  maxLength: 150
+                certificate_type:
+                  $ref: '#/components/schemas/CertificateType'
+                valid_until:
+                  type: string
+                  format: date
+                  description: Must be a future date (ISO 8601)
+                issuing_country:
+                  $ref: '#/components/schemas/Country'
+            example:
+              document_id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+              trader_id: 1fa12c64-1234-4562-b3fc-2c963f66afa6
+              product_name: Dried Cassava
+              certificate_type: TBS
+              valid_until: "2026-12-31"
+              issuing_country: TZ
+      responses:
+        '201':
+          description: Certificate issued successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/Certificate'
+        '400':
+          description: Document not in pending status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/certificates:
+    get:
+      tags: [Certificates]
+      summary: List certificates (scoped by role)
+      description: |
+        Traders see only their own certificates.
+        Officers and Admins see all with optional filters.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/CertificateStatus'
+        - name: certificate_type
+          in: query
+          schema:
+            $ref: '#/components/schemas/CertificateType'
+        - name: country
+          in: query
+          schema:
+            $ref: '#/components/schemas/Country'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Certificate list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Certificate'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/certificates/{id}:
+    get:
+      tags: [Certificates]
+      summary: Get single certificate
+      description: Traders can only access their own certificates.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Certificate record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Certificate'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/certificates/{id}/download:
+    get:
+      tags: [Certificates]
+      summary: Download certificate as PDF (US-03)
+      description: |
+        Returns a PDF buffer containing certificate details and the embedded QR code.
+        Traders can only download their own certificates.
+        Download is logged to the audit trail.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="TradeLens_TL-TZ-TBS-LK3M9A.pdf"
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/certificates/{id}/revoke:
+    patch:
+      tags: [Certificates]
+      summary: Revoke a certificate (Standards Officer / Admin)
+      description: |
+        Revokes an active certificate. Requires a reason of at least 5 characters.
+        Logs revocation to audit trail and sends SMS alert to the trader.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+      responses:
+        '200':
+          description: Certificate revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/Certificate'
+        '400':
+          description: Certificate not active or reason too short
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/certificates/{id}/audit:
+    get:
+      tags: [Certificates]
+      summary: Certificate audit trail (Officer / Admin — BR-06)
+      description: Full immutable audit trail for a certificate, ordered chronologically.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Audit trail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLog'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # VERIFY
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  /api/verify/qr:
+    post:
+      tags: [Verify]
+      summary: Scan QR code at border (Customs Officer — US-05, BR-03)
+      description: |
+        Decodes the base64 QR payload from `certificateService`, re-hashes
+        it via `utils/hash.js`, and compares against the stored `sha256_hash`.
+        Returns green / red compliance result in under 30 seconds (BR-03).
+        Tamper detection triggers a security alert SMS to the officer.
+        Every scan — success, failure, or tamper — is logged to `verification_log`.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [qr_payload]
+              properties:
+                qr_payload:
+                  type: string
+                  minLength: 10
+                  description: Base64-encoded QR payload scanned from the certificate
+            example:
+              qr_payload: eyJjZXJ0aWZpY2F0ZV9udW1iZXIiOiJUTC1UWi1UQlMtTEszTTlBIn0=
+      responses:
+        '200':
+          description: Verification result (green or red)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  response_ms:
+                    type: integer
+                    description: Always present — confirm value is under 30 000 ms (BR-03)
+                  data:
+                    $ref: '#/components/schemas/VerificationResult'
+        '400':
+          description: Malformed QR payload or SHA-256 tamper detected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  verification_status:
+                    type: string
+                    enum: [tampered, invalid_qr]
+                  status_colour:
+                    type: string
+                    enum: [red]
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Certificate not found in registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/verify/search:
+    get:
+      tags: [Verify]
+      summary: Search certificate by ID or number (Customs Officer — US-05)
+      description: |
+        Manual search fallback for when QR scanning is not possible.
+        At least one of `certificate_id`, `trader_id`, or `certificate_number` is required.
+        All searches are logged to `verification_log`.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: certificate_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: trader_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: certificate_number
+          in: query
+          schema:
+            type: string
+            example: TL-TZ-TBS-LK3M9A
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  response_ms:
+                    type: integer
+                  total:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VerificationResult'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: No certificates found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/verify/trader/{trader_id}:
+    get:
+      tags: [Verify]
+      summary: All certificates for a trader at border (Customs Officer — US-06)
+      description: |
+        Gives border officers a full compliance picture of a trader in one call.
+        Returns trader profile, summary counts, and all certificates.
+        Logged to `verification_log`.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: trader_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Trader compliance overview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      trader:
+                        $ref: '#/components/schemas/UserProfile'
+                      summary:
+                        type: object
+                        properties:
+                          total_certificates:
+                            type: integer
+                          active:
+                            type: integer
+                          expired:
+                            type: integer
+                          revoked:
+                            type: integer
+                      certificates:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Certificate'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Trader not found in TradeLens registry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/verify/certificate/{id}/audit:
+    get:
+      tags: [Verify]
+      summary: Full audit trail at border checkpoint (Officer / Admin — US-06, BR-06)
+      description: Chronological audit trail for a certificate — for border inspection use.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Audit trail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      certificate:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          certificate_number:
+                            type: string
+                          product_name:
+                            type: string
+                          status:
+                            $ref: '#/components/schemas/CertificateStatus'
+                      audit_trail:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLog'
+                      total_events:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/verify/stats:
+    get:
+      tags: [Verify]
+      summary: Verification statistics (Officer / Admin — US-07)
+      description: |
+        Aggregated verification stats for the Admin Panel dashboard.
+        Filterable by country and date range.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: country
+          in: query
+          schema:
+            $ref: '#/components/schemas/Country'
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: "2026-05-01"
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: "2026-05-31"
+      responses:
+        '200':
+          description: Verification stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      total_verifications:
+                        type: integer
+                      by_action:
+                        type: object
+                        additionalProperties:
+                          type: integer
+                        example:
+                          verification_qr: 142
+                          verification_search: 38
+                          verification_tamper_detected: 2
+                      by_country:
+                        type: object
+                        additionalProperties:
+                          type: integer
+                        example:
+                          TZ: 97
+                          ZM: 83
+                      filters_applied:
+                        type: object
+                        properties:
+                          country:
+                            type: string
+                            nullable: true
+                          from_date:
+                            type: string
+                            nullable: true
+                          to_date:
+                            type: string
+                            nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
