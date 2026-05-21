@@ -15,7 +15,15 @@
     "@supabase/supabase-js": "^2.43.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.23.1"
+    "react-router-dom": "^6.23.1",
+    
+    // Recommended additions:
+    "qrcode": "^1.5.4",                    // QR Code generation for certificates
+    "html5-qrcode": "^2.3.8",              // Camera QR Scanner for Customs portal
+    "jspdf": "^2.5.1",                     // PDF generation for certificate download
+    "date-fns": "^3.6.0",                  // Date formatting & manipulation
+    "react-hot-toast": "^2.4.1",           // Beautiful toast notifications
+    "lucide-react": "^0.378.0"             // Modern icons (lightweight)
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
