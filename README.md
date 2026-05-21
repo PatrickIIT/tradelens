@@ -21,54 +21,56 @@ Cross-border traders between Tanzania and Zambia face:
 TradeLens provides:
 1. **Unified Digital Certificate Registry** — certificates issued once, recognised on both sides
 2. **Multi-Country Compliance Dashboard** — upload documents once, auto-mapped per destination
-3. **Customs Verification Portal** — border officers verify compliance by QR scan in under 30 seconds
+3. **Customs Verification Portal** — border officers verify compliance by QR scan in under 30 seconds (BR-03)
 
 ---
 
 ## Tech Stack (Zero-Cost)
 
-| Layer | Technology | Hosting |
-|---|---|---|
-| Frontend | React (Vite) | Vercel (free) |
-| Backend API | Node.js / Express | Render (free) |
-| Database | PostgreSQL | Supabase (free forever) |
-| Auth | Supabase Auth (OAuth 2.0 + MFA) | Supabase |
-| File Storage | Supabase Storage | Supabase |
-| SMS | Africa's Talking API | Pay-as-you-go |
-| CI/CD | GitHub Actions | GitHub (free) |
+| Layer          | Technology                          | Hosting                  |
+|----------------|-------------------------------------|--------------------------|
+| Frontend       | React 18 + Vite + Tailwind          | Vercel (free)            |
+| Backend API    | Node.js + Express                   | Render (free)            |
+| Database       | PostgreSQL                          | Supabase (free)          |
+| Auth           | Supabase Auth (JWT + MFA)           | Supabase                 |
+| File Storage   | Supabase Storage                    | Supabase                 |
+| SMS            | Africa's Talking API                | Pay-as-you-go            |
+| QR Code        | `qrcode` + `html5-qrcode`           | —                        |
+| PDF Generation | `jspdf`                             | —                        |
+| CI/CD          | GitHub Actions                      | GitHub (free)            |
 
 ---
 
 ## Repository Structure
 
-```
+```bash
 tradelens/
 ├── README.md
 ├── .env.example
 ├── .gitignore
 │
-├── backend/                        # Node.js / Express API
+├── backend/                          # Node.js / Express API
 │   ├── package.json
 │   ├── src/
-│   │   ├── index.js                # Server entry point
+│   │   ├── index.js                  # Server entry point
 │   │   ├── config/
-│   │   │   └── supabase.js         # Supabase client (server-side)
+│   │   │   └── supabase.js
 │   │   ├── routes/
-│   │   │   ├── auth.js             # Login, register, roles
-│   │   │   ├── certificates.js     # Issue, list, download
-│   │   │   ├── documents.js        # Upload, status, checklist
-│   │   │   └── verify.js           # QR / ID customs lookup
+│   │   │   ├── auth.js
+│   │   │   ├── documents.js
+│   │   │   ├── certificates.js
+│   │   │   └── verify.js
 │   │   ├── middleware/
-│   │   │   ├── auth.js             # JWT verification + role guard
-│   │   │   └── validate.js         # Request body validation
+│   │   │   ├── auth.js
+│   │   │   └── validate.js
 │   │   ├── services/
-│   │   │   ├── certificateService.js   # QR generation + SHA-256 hash
-│   │   │   └── notificationService.js  # Africa's Talking SMS
+│   │   │   ├── certificateService.js
+│   │   │   └── notificationService.js
 │   │   └── utils/
-│   │       └── hash.js             # SHA-256 helpers
-│   └── tests/                      # Jest unit + integration tests
+│   │       └── hash.js
+│   └── tests/
 │
-├── frontend/                       # React (Vite PWA)
+├── frontend/                         # React (Vite PWA)
 │   ├── package.json
 │   ├── vite.config.js
 │   ├── public/
@@ -76,22 +78,32 @@ tradelens/
 │       ├── main.jsx
 │       ├── App.jsx
 │       ├── lib/
-│       │   └── supabase.js         # Supabase JS client (browser)
+│       │   └── supabase.js
 │       ├── context/
-│       │   └── AuthContext.jsx     # Global auth + role state
+│       │   └── AuthContext.jsx
 │       ├── components/
-│       │   ├── Layout/             # Navbar, Sidebar, Footer
-│       │   ├── Certificate/        # CertificateCard, QRDisplay
-│       │   └── QRScanner/          # Camera-based QR input
+│       │   ├── Layout/
+│       │   │   ├── Navbar.jsx
+│       │   │   ├── Sidebar.jsx
+│       │   │   ├── Footer.jsx
+│       │   │   └── index.js
+│       │   ├── Certificate/
+│       │   │   ├── CertificateCard.jsx
+│       │   │   ├── QRDisplay.jsx
+│       │   │   └── index.js
+│       │   ├── QRScanner/
+│       │   │   ├── QRScanner.jsx
+│       │   │   └── index.js
+│       │   └── index.js
 │       └── pages/
 │           ├── Login.jsx
-│           ├── TraderDashboard.jsx     # US-01, US-02, US-03
-│           ├── StandardsOfficer.jsx    # US-04
-│           ├── CustomsVerify.jsx       # US-05, US-06
-│           └── AdminPanel.jsx          # US-07
+│           ├── TraderDashboard.jsx
+│           ├── StandardsOfficer.jsx
+│           ├── CustomsVerify.jsx
+│           └── AdminPanel.jsx
 │
 ├── supabase/
-│   └── migrations/                 # Run with Supabase CLI
+│   └── migrations/
 │       ├── 001_users.sql
 │       ├── 002_products.sql
 │       ├── 003_documents.sql
@@ -101,7 +113,7 @@ tradelens/
 └── docs/
     ├── CBAP_PMP_Document.pdf
     ├── wireframes/
-    └── api-spec.yaml               # OpenAPI 3.0 spec
+    └── api-spec.yaml                 # OpenAPI 3.0 spec
 ```
 
 ---
