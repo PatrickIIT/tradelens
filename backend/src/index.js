@@ -5,10 +5,10 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const authRoutes        = require('./routes/auth');
-const certificateRoutes = require('./routes/certificates');
-const documentRoutes    = require('./routes/documents');
-const verifyRoutes      = require('./routes/verify');
+const authRoutes        = require('./routes/auth.js');
+const certificateRoutes = require('./routes/certificates.js');
+const documentRoutes    = require('./routes/documents.js');
+const verifyRoutes      = require('./routes/verify.js');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
